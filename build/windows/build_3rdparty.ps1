@@ -2834,6 +2834,13 @@ function Build-MySQLServer {
     Copy-FirstMatch -SearchRoot $stageRel -Patterns $mysqlHeaderPatterns -Destination (Join-Path $script:BundleDir "include") -AllowMany | Out-Null
     Copy-FirstMatch -SearchRoot $sourcePath -Patterns $mysqlHeaderPatterns -Destination (Join-Path $script:BundleDir "include") -AllowMany | Out-Null
     Copy-FirstMatch -SearchRoot $buildRel -Patterns @("mysql_version.h", "mysqld_error.h", "errmsg.h") -Destination (Join-Path $script:BundleDir "include") -AllowMany | Out-Null
+    # mysql.h and mysql_com.h include these; they are part of the client
+    # headers a CMake install would provide.
+    foreach ($header in @("my_command.h", "my_compress.h", "my_list.h")) {
+        foreach ($destination in @($mysqlIncludeDir, (Join-Path $script:BundleDir "include"))) {
+            Copy-Item -LiteralPath (Join-Path $sourcePath "include\$header") -Destination (Join-Path $destination $header) -Force
+        }
+    }
 
     $releaseSearchRoots = @($stageRel, (Join-Path $buildRel "library_output_directory"), (Join-Path $buildRel "archive_output_directory"), (Join-Path $buildRel "runtime_output_directory"), $buildRel)
     $debugSearchRoots = @($stageDbg, (Join-Path $buildDbg "library_output_directory"), (Join-Path $buildDbg "archive_output_directory"), (Join-Path $buildDbg "runtime_output_directory"), $buildDbg)

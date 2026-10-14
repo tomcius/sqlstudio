@@ -176,8 +176,9 @@ try {
         'migration\backend', 'migration\dbcopy', 'wb.bugreport', 'wb.query.analysis', 'wb.updater\backend', 'wb.sqlide')) {
         Copy-Files "$root\plugins\$plugin\*.py" "$target\modules"
     }
-    $licenseSuffix = '-commercial'
-    if ($ConfigurationName -eq 'Release_OSS') { $licenseSuffix = '' }
+    # Commercial builds ship the -commercial variants when the tree has them.
+    $licenseSuffix = ''
+    if ($ConfigurationName -ne 'Release_OSS' -and (Test-Path -LiteralPath "$root\README-commercial.md")) { $licenseSuffix = '-commercial' }
     Copy-Files "$root\README$licenseSuffix.md" $target
     Copy-Files "$root\license$licenseSuffix.txt" $target
 
