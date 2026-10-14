@@ -519,11 +519,33 @@ jobs:
             !${{ runner.temp }}/bundle/debug
           key: ${{ steps.bundle-cache.outputs.cache-primary-key }}
 
+      # Built after the cache is saved, so it stays out of the bundle cache.
+      # PrepareOutputDir.ps1 copies it to python\site-packages.
+      - name: Build pyodbc
+        run: |
+          $sdist = "$env:RUNNER_TEMP\pyodbc-$env:PYODBC_VERSION.tar.gz"
+          Invoke-WebRequest -UseBasicParsing -OutFile $sdist `
+            "https://files.pythonhosted.org/packages/source/p/pyodbc/pyodbc-$env:PYODBC_VERSION.tar.gz"
+          if ((Get-FileHash -Algorithm SHA256 $sdist).Hash -ne $env:PYODBC_SHA256) { throw "pyodbc checksum mismatch" }
+          build/windows/build_pyodbc.ps1 -BundleDir $env:MSS_3DPARTY_PATH -Sdist $sdist
+
       - name: Build SqlStudio
         run: |
           build/windows/compile.ps1 -Action build -Configuration Release -BundleDir $env:MSS_3DPARTY_PATH
           if ($LASTEXITCODE) { throw "compile.ps1 failed with exit code $LASTEXITCODE" }
           Get-ChildItem bin\x64\Release | Format-Table Name, Length
+
+      - name: Check DLL dependencies
+        run: |
+          build/windows/check_dll_deps.ps1 -OutputDir bin\x64\Release
+          if ($LASTEXITCODE) { throw "check_dll_deps.ps1 failed with exit code $LASTEXITCODE" }
+
+      # The migration plugins import pyodbc only when used, so check it here.
+      - name: Check pyodbc
+        run: |
+          $env:PYTHONHOME = "$PWD\bin\x64\Release\python"
+          bin\x64\Release\python.exe -c "import sys; sys.path.insert(0, r'$env:PYTHONHOME\site-packages'); import pyodbc; print('pyodbc', pyodbc.version, pyodbc.__file__, pyodbc.drivers())"
+          if ($LASTEXITCODE) { throw "pyodbc import failed" }
 
       - uses: actions/upload-artifact@v7
         with:
