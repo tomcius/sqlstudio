@@ -1865,8 +1865,10 @@ except ModuleNotFoundError:
 '@
     if (-not (Test-Path -LiteralPath $gdbusCodegenUtilsPath -PathType Leaf)) {
         # glib is a meson subproject that "meson setup" would fetch only after
-        # this point. Fetch it now so the patch below reaches it.
-        Invoke-LoggedCommand -Label "cairo meson subprojects download" -FilePath "meson" -Arguments @("subprojects", "download", "--sourcedir", $sourcePath) -WorkingDirectory $sourcePath | Out-Null
+        # this point. Fetch it now so the patch below reaches it. Only glib:
+        # parallel downloads of all subprojects can fail on Windows with
+        # "Resource deadlock avoided" from meson's lock file.
+        Invoke-LoggedCommand -Label "cairo meson subprojects download glib" -FilePath "meson" -Arguments @("subprojects", "download", "--sourcedir", $sourcePath, "glib") -WorkingDirectory $sourcePath | Out-Null
     }
     if (Test-Path -LiteralPath $gdbusCodegenUtilsPath -PathType Leaf) {
         $gdbusCodegenUtilsContent = Get-Content -LiteralPath $gdbusCodegenUtilsPath -Raw
