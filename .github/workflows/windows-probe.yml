@@ -1,0 +1,98 @@
+name: Windows probe
+
+# Temporary: finds out what the hosted Windows runner provides for the Windows
+# build and how long the third-party bundle takes to build from scratch.
+
+on:
+  push:
+    branches: [ci/windows-build]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tools:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Runner
+        run: |
+          Get-CimInstance Win32_OperatingSystem | Format-List Caption, Version, BuildNumber
+          "CPUs: $([Environment]::ProcessorCount)"
+          "Memory: {0:n1} GB" -f ((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, @{n='Free GB';e={[math]::Round($_.Free/1GB,1)}}, @{n='Used GB';e={[math]::Round($_.Used/1GB,1)}}
+
+      - name: Visual Studio
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          & $vswhere -all -products '*' -format text | Select-String 'displayName|installationVersion|installationPath'
+          $vs = & $vswhere -latest -products '*' -property installationPath
+          "Platform toolsets:"
+          Get-ChildItem "$vs\MSBuild\Microsoft\VC\*\Platforms\x64\PlatformToolsets" -Directory | Select-Object -ExpandProperty Name | Sort-Object -Unique
+          "MSVC:"
+          Get-ChildItem "$vs\VC\Tools\MSVC" -Directory | Select-Object -ExpandProperty Name
+          "Windows SDKs:"
+          Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Include" -Directory | Select-Object -ExpandProperty Name
+          ".NET Framework targeting packs:"
+          Get-ChildItem "${env:ProgramFiles(x86)}\Reference Assemblies\Microsoft\Framework\.NETFramework" -Directory | Select-Object -ExpandProperty Name
+          ".NET SDKs:"
+          dotnet --list-sdks
+
+      - name: Host tools
+        run: |
+          foreach ($tool in 'cmake', 'perl', 'nasm', 'meson', 'ninja', 'pkg-config', 'tar', 'python', 'git', '7z', 'choco') {
+            $cmd = Get-Command $tool -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($cmd) { "{0,-11} {1}" -f $tool, $cmd.Source } else { "{0,-11} MISSING" -f $tool }
+          }
+          cmake --version | Select-Object -First 1
+          perl -e 'print "perl $^V\n"'
+          python --version
+
+      - name: Script prerequisites check (download only)
+        run: |
+          pwsh -NoProfile -File build/windows/build_3rdparty.ps1 -DownloadOnly -VerboseOutput -BundleDir "$env:RUNNER_TEMP\bundle"
+          "Downloads: {0:n0} MB" -f ((Get-ChildItem "$env:RUNNER_TEMP\bundle\_work\downloads" -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)
+
+  bundle:
+    # Full third-party build without any cache, to measure time and size.
+    runs-on: windows-2025
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install missing host tools
+        run: |
+          choco install -y --no-progress nasm pkgconfiglite
+          python -m pip install --disable-pip-version-check meson ninja
+          "C:\Program Files\NASM" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
+      - name: Build the third-party bundle
+        run: |
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          try {
+            pwsh -NoProfile -File build/windows/build_3rdparty.ps1 -VerboseOutput -BundleDir "$env:RUNNER_TEMP\bundle"
+            if ($LASTEXITCODE) { throw "build_3rdparty.ps1 failed with exit code $LASTEXITCODE" }
+          } finally {
+            "Elapsed: {0:n0} min" -f $sw.Elapsed.TotalMinutes
+            Get-ChildItem "$env:RUNNER_TEMP\bundle\_work\stamps" -ErrorAction SilentlyContinue | Format-Table Name, LastWriteTime
+          }
+
+      - name: Bundle size
+        if: always()
+        run: |
+          Get-ChildItem "$env:RUNNER_TEMP\bundle" -Directory | ForEach-Object {
+            "{0,-10} {1,8:n0} MB" -f $_.Name, ((Get-ChildItem $_.FullName -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1MB)
+          }
+          "debug\lib: {0:n0} MB" -f ((Get-ChildItem "$env:RUNNER_TEMP\bundle\debug" -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1MB)
+
+      - name: Upload build logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-bundle-logs
+          path: ${{ runner.temp }}/bundle/_work/*.log
+          if-no-files-found: ignore
+          retention-days: 7
