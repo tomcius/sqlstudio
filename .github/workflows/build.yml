@@ -540,12 +540,13 @@ jobs:
           build/windows/check_dll_deps.ps1 -OutputDir bin\x64\Release
           if ($LASTEXITCODE) { throw "check_dll_deps.ps1 failed with exit code $LASTEXITCODE" }
 
-      # The migration plugins import pyodbc only when used, so check it here.
-      - name: Check pyodbc
+      # Modules the app imports only when a feature is used: pyodbc for the
+      # migration plugins, ssl and hashlib for SSH tunnels and connections.
+      - name: Check Python modules
         run: |
           $env:PYTHONHOME = "$PWD\bin\x64\Release\python"
-          bin\x64\Release\python.exe -c "import sys; sys.path.insert(0, r'$env:PYTHONHOME\site-packages'); import pyodbc; print('pyodbc', pyodbc.version, pyodbc.__file__, pyodbc.drivers())"
-          if ($LASTEXITCODE) { throw "pyodbc import failed" }
+          bin\x64\Release\python.exe -c "import sys; sys.path.insert(0, r'$env:PYTHONHOME\site-packages'); import ssl, hashlib, sqlite3, ctypes, pyodbc; print(ssl.OPENSSL_VERSION); print('sqlite', sqlite3.sqlite_version); print('pyodbc', pyodbc.version, pyodbc.drivers())"
+          if ($LASTEXITCODE) { throw "Python module import failed" }
 
       - uses: actions/upload-artifact@v7
         with:
