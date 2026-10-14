@@ -53,11 +53,12 @@ jobs:
 
       - name: Script prerequisites check (download only)
         run: |
+          python -m pip install --disable-pip-version-check meson
           pwsh -NoProfile -File build/windows/build_3rdparty.ps1 -DownloadOnly -VerboseOutput -BundleDir "$env:RUNNER_TEMP\bundle"
           "Downloads: {0:n0} MB" -f ((Get-ChildItem "$env:RUNNER_TEMP\bundle\_work\downloads" -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)
 
   bundle:
-    # Full third-party build without any cache, to measure time and size.
+    # Full third-party build, to find what breaks and measure time and size.
     runs-on: windows-2025
     timeout-minutes: 350
     steps:
@@ -65,9 +66,26 @@ jobs:
 
       - name: Install missing host tools
         run: |
-          choco install -y --no-progress nasm pkgconfiglite
           python -m pip install --disable-pip-version-check meson ninja
-          "C:\Program Files\NASM" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          # The cairo/glib build expects an MSYS2 MinGW pkg-config with
+          # libffi-8.dll next to it. MSYS2 is preinstalled on the runner. Its
+          # bin directory goes last on PATH so it does not shadow MSVC or Python.
+          C:\msys64\usr\bin\pacman.exe -Sy --noconfirm --needed mingw-w64-x86_64-pkgconf mingw-w64-x86_64-libffi
+          if ($LASTEXITCODE) { throw "pacman failed" }
+          "PATH=$env:PATH;C:\msys64\mingw64\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      # Between probe runs only: dependencies that were already built are
+      # skipped by the script (it keeps a stamp per dependency).
+      - name: Restore partial bundle
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ${{ runner.temp }}/bundle
+            !${{ runner.temp }}/bundle/_work/source
+            !${{ runner.temp }}/bundle/_work/build
+            !${{ runner.temp }}/bundle/_work/downloads
+          key: windows-probe-bundle-${{ github.run_id }}
+          restore-keys: windows-probe-bundle-
 
       - name: Build the third-party bundle
         run: |
@@ -79,6 +97,17 @@ jobs:
             "Elapsed: {0:n0} min" -f $sw.Elapsed.TotalMinutes
             Get-ChildItem "$env:RUNNER_TEMP\bundle\_work\stamps" -ErrorAction SilentlyContinue | Format-Table Name, LastWriteTime
           }
+
+      - name: Save partial bundle
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ${{ runner.temp }}/bundle
+            !${{ runner.temp }}/bundle/_work/source
+            !${{ runner.temp }}/bundle/_work/build
+            !${{ runner.temp }}/bundle/_work/downloads
+          key: windows-probe-bundle-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Bundle size
         if: always()
