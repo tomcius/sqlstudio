@@ -476,13 +476,15 @@ jobs:
           "SHORT_SHA=$($env:GITHUB_SHA.Substring(0, 8))" >> $env:GITHUB_ENV
 
       # Only what a Release build of the app needs: no Debug libraries
-      # (debug), build-time tools (_tools) or build trees (_work).
+      # (debug), build-time tools (_tools) or build trees (_work). The path
+      # ends in /* because exclusions only filter matched entries: a bare
+      # directory is archived whole, exclusions included.
       - name: Restore 3rd-party bundle
         id: bundle-cache
         uses: actions/cache/restore@v6
         with:
           path: |
-            ${{ runner.temp }}/bundle
+            ${{ runner.temp }}/bundle/*
             !${{ runner.temp }}/bundle/_work
             !${{ runner.temp }}/bundle/_tools
             !${{ runner.temp }}/bundle/debug
@@ -511,7 +513,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: |
-            ${{ runner.temp }}/bundle
+            ${{ runner.temp }}/bundle/*
             !${{ runner.temp }}/bundle/_work
             !${{ runner.temp }}/bundle/_tools
             !${{ runner.temp }}/bundle/debug
