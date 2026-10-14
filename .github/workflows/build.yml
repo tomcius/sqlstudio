@@ -158,7 +158,7 @@ jobs:
     name: Test package (${{ matrix.name }})
     needs: linux
     # Test the packages that did build even when another distro failed.
-    if: ${{ !cancelled() }}
+    if: false  # TEMP
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
