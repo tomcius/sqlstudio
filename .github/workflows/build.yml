@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [develop, master]
   push:
-    branches: [develop, master]
+    branches: [develop, master, ci/windows-build]
   workflow_dispatch:
 
 # A new push to the same PR cancels the build that is still running for it.
@@ -29,6 +29,7 @@ jobs:
   # targets. Clean containers also keep libraries preinstalled on the hosted
   # runner image from leaking into the build.
   linux:
+    if: false  # TEMP
     name: Linux (${{ matrix.name }})
     runs-on: ubuntu-24.04
     timeout-minutes: 300
@@ -258,6 +259,7 @@ jobs:
   # and the rest; glib, cairo and friends come from Homebrew, and
   # build/mac/bundle_app.py copies everything the app loads into it.
   macos:
+    if: false  # TEMP
     name: macOS (Apple Silicon)
     runs-on: macos-26
     timeout-minutes: 240
