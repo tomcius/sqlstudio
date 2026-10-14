@@ -1863,6 +1863,11 @@ except ModuleNotFoundError:
             def __ge__(self, other):
                 return self._cmp_key() >= other._cmp_key()
 '@
+    if (-not (Test-Path -LiteralPath $gdbusCodegenUtilsPath -PathType Leaf)) {
+        # glib is a meson subproject that "meson setup" would fetch only after
+        # this point. Fetch it now so the patch below reaches it.
+        Invoke-LoggedCommand -Label "cairo meson subprojects download" -FilePath "meson" -Arguments @("subprojects", "download", "--sourcedir", $sourcePath) -WorkingDirectory $sourcePath | Out-Null
+    }
     if (Test-Path -LiteralPath $gdbusCodegenUtilsPath -PathType Leaf) {
         $gdbusCodegenUtilsContent = Get-Content -LiteralPath $gdbusCodegenUtilsPath -Raw
         $patchedGdbusCodegenUtilsContent = $gdbusCodegenUtilsContent -replace 'import distutils\.version', $gdbusCodegenCompatImport
