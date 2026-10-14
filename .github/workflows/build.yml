@@ -453,3 +453,80 @@ jobs:
           path: smoke-test
           if-no-files-found: ignore
           retention-days: 14
+
+  # x64 build of SqlStudio for Windows with the Visual Studio 2026 toolset
+  # of the windows-2025 image. build/windows/build_3rdparty.ps1 builds every
+  # library the app links from source.
+  windows:
+    name: Windows (x64)
+    runs-on: windows-2025
+    timeout-minutes: 300
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set paths
+        run: |
+          "MSS_3DPARTY_PATH=$env:RUNNER_TEMP\bundle" >> $env:GITHUB_ENV
+          "SHORT_SHA=$($env:GITHUB_SHA.Substring(0, 8))" >> $env:GITHUB_ENV
+
+      # Only what a Release build of the app needs: no Debug libraries
+      # (debug), build-time tools (_tools) or build trees (_work).
+      - name: Restore 3rd-party bundle
+        id: bundle-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ${{ runner.temp }}/bundle
+            !${{ runner.temp }}/bundle/_work
+            !${{ runner.temp }}/bundle/_tools
+            !${{ runner.temp }}/bundle/debug
+          key: bundle-windows-x64-${{ hashFiles('build/windows/libs.txt', 'build/windows/build_3rdparty.ps1') }}
+
+      # The cairo/glib build uses an MSYS2 MinGW pkg-config with libffi-8.dll
+      # next to it, from C:\msys64 (preinstalled on the runner). Its bin
+      # directory goes last on PATH so it does not shadow MSVC or Python.
+      - name: Install bundle build tools
+        if: steps.bundle-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m pip install --disable-pip-version-check meson ninja
+          C:\msys64\usr\bin\pacman.exe -Sy --noconfirm --needed mingw-w64-x86_64-pkgconf mingw-w64-x86_64-libffi
+          if ($LASTEXITCODE) { throw "pacman failed with exit code $LASTEXITCODE" }
+          "C:\msys64\mingw64\bin" >> $env:GITHUB_PATH
+
+      - name: Build 3rd-party bundle
+        if: steps.bundle-cache.outputs.cache-hit != 'true'
+        run: |
+          build/windows/build_3rdparty.ps1 -BundleDir $env:MSS_3DPARTY_PATH -VerboseOutput
+          if ($LASTEXITCODE) { throw "build_3rdparty.ps1 failed with exit code $LASTEXITCODE" }
+
+      # Saved right away so a failing application build does not throw the bundle away.
+      - name: Save 3rd-party bundle
+        if: steps.bundle-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ${{ runner.temp }}/bundle
+            !${{ runner.temp }}/bundle/_work
+            !${{ runner.temp }}/bundle/_tools
+            !${{ runner.temp }}/bundle/debug
+          key: ${{ steps.bundle-cache.outputs.cache-primary-key }}
+
+      - name: Build SqlStudio
+        run: |
+          build/windows/compile.ps1 -Action build -Configuration Release -BundleDir $env:MSS_3DPARTY_PATH
+          if ($LASTEXITCODE) { throw "compile.ps1 failed with exit code $LASTEXITCODE" }
+          Get-ChildItem bin\x64\Release | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sql-studio-windows-x64-build-${{ env.SHORT_SHA }}
+          path: |
+            bin/x64/Release
+            !bin/x64/Release/**/*.pdb
+            !bin/x64/Release/**/*.ilk
+            !bin/x64/Release/**/*.exp
+          retention-days: 7
