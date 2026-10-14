@@ -16,11 +16,16 @@
 # MySQL downloads use the cdn.mysql.com archive first: dev.mysql.com answers
 # 403 to the PowerShell and BITS user agents, and the archive URL stays valid
 # after a newer release replaces the version on the download page.
+#
+# cairographics.org often times out, so cairo falls back to the identical
+# tarball on snapshot.debian.org (cairo_1.18.0.orig.tar.xz, same SHA256).
+# The archive is named after the first source, so the fallback URL needs
+# no file name.
 
 openssl|3.3.1|openssl|https://github.com/openssl/openssl/archive/refs/tags/openssl-3.3.1.zip
 zlib|1.3.1|zlib|https://github.com/madler/zlib/archive/refs/tags/v1.3.1.zip
 libxml2|2.13.2|libxml2|https://github.com/GNOME/libxml2/archive/refs/tags/v2.13.2.zip
-cairo|1.18.0|cairo|https://cairographics.org/releases/cairo-1.18.0.tar.xz
+cairo|1.18.0|cairo|https://cairographics.org/releases/cairo-1.18.0.tar.xz;https://snapshot.debian.org/file/fae6760ed0772681ddc60c603c9bb525ac74f000
 libzip|1.11.2|libzip|https://github.com/nih-at/libzip/archive/refs/tags/v1.11.2.zip
 antlr4-runtime|4.13.2|antlr4|https://www.antlr.org/download/antlr4-cpp-runtime-4.13.2-source.zip
 libssh|0.11.1|libssh|https://www.libssh.org/files/0.11/libssh-0.11.1.tar.xz
