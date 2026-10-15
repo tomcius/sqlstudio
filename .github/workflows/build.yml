@@ -559,3 +559,71 @@ jobs:
           path: dist/*
           compression-level: 0
           retention-days: 14
+
+  # Unpacks the .zip on a fresh runner, as a user would, with the runner's
+  # own Python taken off PATH, so the app can only use what it ships.
+  windows-package-test:
+    name: Test package (Windows x64)
+    needs: windows
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Set paths
+        run: |
+          "SHORT_SHA=$($env:GITHUB_SHA.Substring(0, 8))" >> $env:GITHUB_ENV
+          $path = ($env:PATH -split ';' | Where-Object { $_ -notmatch 'Python' }) -join ';'
+          "PATH=$path" >> $env:GITHUB_ENV
+
+      # Only the test scripts are needed from the repository.
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: build/windows
+          path: src
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: sql-studio-windows-x64-${{ env.SHORT_SHA }}
+          path: dist
+
+      - name: Unpack the .zip
+        run: |
+          $zip = Get-Item dist\*.zip
+          $expected = (Get-Content "$($zip.FullName).sha256").Split(' ')[0]
+          if ((Get-FileHash -Algorithm SHA256 $zip).Hash -ne $expected) { throw "SHA256 mismatch for $($zip.Name)" }
+          Expand-Archive -LiteralPath $zip -DestinationPath C:\apps
+          $app = @(Get-ChildItem C:\apps -Directory)[0].FullName
+          "APP=$app" >> $env:GITHUB_ENV
+          Write-Host "Unpacked to $app"
+
+      # Every DLL must be in the package or part of Windows, the Visual C++
+      # runtime included.
+      - name: Check DLL dependencies
+        run: |
+          src/build/windows/check_dll_deps.ps1 -OutputDir $env:APP -RequireAppLocalRuntime
+          if ($LASTEXITCODE) { throw "check_dll_deps.ps1 failed with exit code $LASTEXITCODE" }
+
+      - name: Check Python modules
+        run: |
+          $env:PYTHONHOME = "$env:APP\python"
+          & "$env:APP\python.exe" -c "import sys; sys.path.insert(0, r'$env:PYTHONHOME\site-packages'); import ssl, hashlib, sqlite3, ctypes, pyodbc; print(sys.executable, sys.prefix); print(ssl.OPENSSL_VERSION); print('pyodbc', pyodbc.version)"
+          if ($LASTEXITCODE) { throw "Python module import failed" }
+
+      # Starts the app and checks that its main window appears and it keeps
+      # running without Python errors.
+      - name: Smoke test
+        run: |
+          src/build/windows/smoke_test.ps1 -AppDir $env:APP -OutDir smoke-test
+          if ($LASTEXITCODE) { throw "smoke_test.ps1 failed with exit code $LASTEXITCODE" }
+
+      - name: Upload smoke test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-test-windows-x64-${{ env.SHORT_SHA }}
+          path: smoke-test
+          if-no-files-found: ignore
+          retention-days: 14

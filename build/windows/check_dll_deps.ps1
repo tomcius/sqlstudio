@@ -18,7 +18,10 @@ missing, so the check can gate a CI job.
 param(
     [Parameter(Mandatory)][string]$OutputDir,
     # Binaries (file names) whose missing imports are reported but tolerated.
-    [string[]]$AllowMissingFor = @()
+    [string[]]$AllowMissingFor = @(),
+    # Fail when the Visual C++ runtime comes from System32 instead of OutputDir,
+    # for a package that has to ship it.
+    [switch]$RequireAppLocalRuntime
 )
 
 Set-StrictMode -Version Latest
@@ -67,6 +70,11 @@ if ($fromSystem.Count) {
 }
 foreach ($line in $tolerated) { Write-Host "[WARN] Missing (allowed): $line" -ForegroundColor Yellow }
 foreach ($line in $missing) { Write-Host "[ERROR] Missing: $line" -ForegroundColor Red }
+if ($RequireAppLocalRuntime -and $fromSystem.Count) {
+    $line = 'Visual C++ runtime not shipped: ' + ($fromSystem -join ', ')
+    Write-Host "[ERROR] $line" -ForegroundColor Red
+    $missing.Add($line)
+}
 if ($missing.Count) {
     Write-Host ('{0} missing imports.' -f $missing.Count) -ForegroundColor Red
     exit 1
