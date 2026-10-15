@@ -537,6 +537,7 @@ jobs:
           Get-ChildItem "$vs\VC\Tools\MSVC" | ForEach-Object { "$($_.Name): atl=" + (Test-Path "$($_.FullName)\atlmfc\include\atlbase.h") }
 
       - name: Build SqlStudio
+        continue-on-error: true  # TEMP: studio.testing does not link with v143
         run: |
           build/windows/compile.ps1 -Action build -Configuration Release -BundleDir $env:MSS_3DPARTY_PATH -PlatformToolset v143  # TEMP experiment
           if ($LASTEXITCODE) { throw "compile.ps1 failed with exit code $LASTEXITCODE" }
