@@ -529,17 +529,9 @@ jobs:
           if ((Get-FileHash -Algorithm SHA256 $sdist).Hash -ne $env:PYODBC_SHA256) { throw "pyodbc checksum mismatch" }
           build/windows/build_pyodbc.ps1 -BundleDir $env:MSS_3DPARTY_PATH -Sdist $sdist
 
-      - name: TEMP add ATL for v143
-        run: |
-          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-          $p = Start-Process -Wait -PassThru "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe" -ArgumentList @('modify','--installPath',"`"$vs`"",'--add','Microsoft.VisualStudio.Component.VC.14.44.17.14.ATL','--quiet','--norestart','--nocache')
-          Write-Host "installer exit $($p.ExitCode)"
-          Get-ChildItem "$vs\VC\Tools\MSVC" | ForEach-Object { "$($_.Name): atl=" + (Test-Path "$($_.FullName)\atlmfc\include\atlbase.h") }
-
       - name: Build SqlStudio
-        continue-on-error: true  # TEMP: studio.testing does not link with v143
         run: |
-          build/windows/compile.ps1 -Action build -Configuration Release -BundleDir $env:MSS_3DPARTY_PATH -PlatformToolset v143  # TEMP experiment
+          build/windows/compile.ps1 -Action build -Configuration Release -BundleDir $env:MSS_3DPARTY_PATH
           if ($LASTEXITCODE) { throw "compile.ps1 failed with exit code $LASTEXITCODE" }
           Get-ChildItem bin\x64\Release | Format-Table Name, Length
 
