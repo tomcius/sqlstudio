@@ -466,6 +466,11 @@ jobs:
     defaults:
       run:
         shell: pwsh
+    env:
+      # v145 (MSVC 14.51) emits ldftn with a null token in the C++/CLI
+      # boost::function constructors, so the app fails at startup with
+      # "Bad method token". The libraries and the app are built with v143.
+      PLATFORM_TOOLSET: v143
 
     steps:
       - uses: actions/checkout@v7
@@ -488,7 +493,7 @@ jobs:
             !${{ runner.temp }}/bundle/_work
             !${{ runner.temp }}/bundle/_tools
             !${{ runner.temp }}/bundle/debug
-          key: bundle-windows-x64-${{ hashFiles('build/windows/libs.txt', 'build/windows/build_3rdparty.ps1') }}
+          key: bundle-windows-x64-${{ env.PLATFORM_TOOLSET }}-${{ hashFiles('build/windows/libs.txt', 'build/windows/build_3rdparty.ps1') }}
 
       # The cairo/glib build uses an MSYS2 MinGW pkg-config with libffi-8.dll
       # next to it, from C:\msys64 (preinstalled on the runner). Its bin
@@ -504,7 +509,7 @@ jobs:
       - name: Build 3rd-party bundle
         if: steps.bundle-cache.outputs.cache-hit != 'true'
         run: |
-          build/windows/build_3rdparty.ps1 -BundleDir $env:MSS_3DPARTY_PATH -VerboseOutput
+          build/windows/build_3rdparty.ps1 -BundleDir $env:MSS_3DPARTY_PATH -VerboseOutput -PlatformToolset $env:PLATFORM_TOOLSET
           if ($LASTEXITCODE) { throw "build_3rdparty.ps1 failed with exit code $LASTEXITCODE" }
 
       # Saved right away so a failing application build does not throw the bundle away.
@@ -527,11 +532,22 @@ jobs:
           Invoke-WebRequest -UseBasicParsing -OutFile $sdist `
             "https://files.pythonhosted.org/packages/source/p/pyodbc/pyodbc-$env:PYODBC_VERSION.tar.gz"
           if ((Get-FileHash -Algorithm SHA256 $sdist).Hash -ne $env:PYODBC_SHA256) { throw "pyodbc checksum mismatch" }
-          build/windows/build_pyodbc.ps1 -BundleDir $env:MSS_3DPARTY_PATH -Sdist $sdist
+          build/windows/build_pyodbc.ps1 -BundleDir $env:MSS_3DPARTY_PATH -Sdist $sdist -PlatformToolset $env:PLATFORM_TOOLSET
+
+      # The runner image has the v143 compiler but not its ATL, which
+      # wbprivate.be needs (atlbase.h).
+      - name: Install ATL for v143
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $version = (Get-Content "$vs\VC\Auxiliary\Build\Microsoft.VCToolsVersion.v143.default.txt" -TotalCount 1).Trim()
+          if (Test-Path "$vs\VC\Tools\MSVC\$version\atlmfc\include\atlbase.h") { Write-Host "ATL for $version is installed."; exit 0 }
+          $installer = Start-Process -Wait -PassThru "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe" `
+            -ArgumentList @('modify', '--installPath', "`"$vs`"", '--add', 'Microsoft.VisualStudio.Component.VC.14.44.17.14.ATL', '--quiet', '--norestart', '--nocache')
+          if (-not (Test-Path "$vs\VC\Tools\MSVC\$version\atlmfc\include\atlbase.h")) { throw "ATL for $version was not installed (installer exit code $($installer.ExitCode))" }
 
       - name: Build SqlStudio
         run: |
-          build/windows/compile.ps1 -Action build -Configuration Release -BundleDir $env:MSS_3DPARTY_PATH
+          build/windows/compile.ps1 -Action build -Configuration Release -BundleDir $env:MSS_3DPARTY_PATH -PlatformToolset $env:PLATFORM_TOOLSET
           if ($LASTEXITCODE) { throw "compile.ps1 failed with exit code $LASTEXITCODE" }
           Get-ChildItem bin\x64\Release | Format-Table Name, Length
 

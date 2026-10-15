@@ -17,7 +17,10 @@ param(
     [Parameter(Mandatory)][string]$BundleDir,
     [Parameter(Mandatory)][string]$Sdist,
     # Defaults to the bundle's Python directory, where PrepareOutputDir.ps1 looks.
-    [string]$OutDir
+    [string]$OutDir,
+    # MSVC toolset to compile with; "auto" takes the newest one installed.
+    [ValidateSet("auto", "v143", "v145")]
+    [string]$PlatformToolset = "auto"
 )
 
 Set-StrictMode -Version Latest
@@ -35,6 +38,12 @@ $vsWhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer
 $vsPath = (& $vsWhere -latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
 if (-not $vsPath) { throw 'No Visual Studio installation with the x64 C++ tools was found.' }
 $vcVars = Join-Path $vsPath 'VC\Auxiliary\Build\vcvarsall.bat'
+$vcVarsArgs = 'x64'
+if ($PlatformToolset -ne 'auto') {
+    $toolsVersionFile = Join-Path $vsPath "VC\Auxiliary\Build\Microsoft.VCToolsVersion.$PlatformToolset.default.txt"
+    if (-not (Test-Path -LiteralPath $toolsVersionFile -PathType Leaf)) { throw "The $PlatformToolset toolset is not installed under $vsPath" }
+    $vcVarsArgs += ' -vcvars_ver=' + (Get-Content -LiteralPath $toolsVersionFile -TotalCount 1).Trim()
+}
 
 $workDir = Join-Path ([System.IO.Path]::GetTempPath()) ("pyodbc-" + [guid]::NewGuid().ToString('N'))
 [void][System.IO.Directory]::CreateDirectory($workDir)
@@ -52,7 +61,7 @@ try {
     $cl = "cl.exe /nologo /LD /O2 /MD /EHsc /std:c++17 /DNDEBUG /DPYODBC_VERSION=$version " +
           "/I`"$python\Include`" /Fo`"$workDir\\`" $sources " +
           "/link /LIBPATH:`"$python\libs`" odbc32.lib /OUT:`"$target`""
-    cmd.exe /c "`"$vcVars`" x64 >nul && $cl"
+    cmd.exe /c "`"$vcVars`" $vcVarsArgs >nul && $cl"
     if ($LASTEXITCODE) { throw "cl.exe failed with exit code $LASTEXITCODE" }
     # The import library and export file are only build by-products.
     Remove-Item -LiteralPath ([System.IO.Path]::ChangeExtension($target, '.lib')), ([System.IO.Path]::ChangeExtension($target, '.exp')) -ErrorAction SilentlyContinue
