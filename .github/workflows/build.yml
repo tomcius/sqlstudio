@@ -480,6 +480,19 @@ jobs:
           "MSS_3DPARTY_PATH=$env:RUNNER_TEMP\bundle" >> $env:GITHUB_ENV
           "SHORT_SHA=$($env:GITHUB_SHA.Substring(0, 8))" >> $env:GITHUB_ENV
 
+      # The runner image has the v143 compiler but not its ATL, which
+      # wbprivate.be needs (atlbase.h). Installed before anything is built:
+      # the VS installer refuses to run (exit code 8006) while MSBuild nodes
+      # left over from a build are still running.
+      - name: Install ATL for v143
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $version = (Get-Content "$vs\VC\Auxiliary\Build\Microsoft.VCToolsVersion.v143.default.txt" -TotalCount 1).Trim()
+          if (Test-Path "$vs\VC\Tools\MSVC\$version\atlmfc\include\atlbase.h") { Write-Host "ATL for $version is installed."; exit 0 }
+          $installer = Start-Process -Wait -PassThru "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe" `
+            -ArgumentList @('modify', '--installPath', "`"$vs`"", '--add', 'Microsoft.VisualStudio.Component.VC.14.44.17.14.ATL', '--quiet', '--norestart', '--nocache')
+          if (-not (Test-Path "$vs\VC\Tools\MSVC\$version\atlmfc\include\atlbase.h")) { throw "ATL for $version was not installed (installer exit code $($installer.ExitCode))" }
+
       # Only what a Release build of the app needs: no Debug libraries
       # (debug), build-time tools (_tools) or build trees (_work). The path
       # ends in /* because exclusions only filter matched entries: a bare
@@ -533,17 +546,6 @@ jobs:
             "https://files.pythonhosted.org/packages/source/p/pyodbc/pyodbc-$env:PYODBC_VERSION.tar.gz"
           if ((Get-FileHash -Algorithm SHA256 $sdist).Hash -ne $env:PYODBC_SHA256) { throw "pyodbc checksum mismatch" }
           build/windows/build_pyodbc.ps1 -BundleDir $env:MSS_3DPARTY_PATH -Sdist $sdist -PlatformToolset $env:PLATFORM_TOOLSET
-
-      # The runner image has the v143 compiler but not its ATL, which
-      # wbprivate.be needs (atlbase.h).
-      - name: Install ATL for v143
-        run: |
-          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-          $version = (Get-Content "$vs\VC\Auxiliary\Build\Microsoft.VCToolsVersion.v143.default.txt" -TotalCount 1).Trim()
-          if (Test-Path "$vs\VC\Tools\MSVC\$version\atlmfc\include\atlbase.h") { Write-Host "ATL for $version is installed."; exit 0 }
-          $installer = Start-Process -Wait -PassThru "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe" `
-            -ArgumentList @('modify', '--installPath', "`"$vs`"", '--add', 'Microsoft.VisualStudio.Component.VC.14.44.17.14.ATL', '--quiet', '--norestart', '--nocache')
-          if (-not (Test-Path "$vs\VC\Tools\MSVC\$version\atlmfc\include\atlbase.h")) { throw "ATL for $version was not installed (installer exit code $($installer.ExitCode))" }
 
       - name: Build SqlStudio
         run: |
