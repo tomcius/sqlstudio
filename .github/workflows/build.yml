@@ -531,7 +531,7 @@ jobs:
 
       - name: Build SqlStudio
         run: |
-          build/windows/compile.ps1 -Action build -Configuration Release -BundleDir $env:MSS_3DPARTY_PATH
+          build/windows/compile.ps1 -Action build -Configuration Release -BundleDir $env:MSS_3DPARTY_PATH -PlatformToolset v143  # TEMP experiment
           if ($LASTEXITCODE) { throw "compile.ps1 failed with exit code $LASTEXITCODE" }
           Get-ChildItem bin\x64\Release | Format-Table Name, Length
 
