@@ -548,12 +548,14 @@ jobs:
           bin\x64\Release\python.exe -c "import sys; sys.path.insert(0, r'$env:PYTHONHOME\site-packages'); import ssl, hashlib, sqlite3, ctypes, pyodbc; print(ssl.OPENSSL_VERSION); print('sqlite', sqlite3.sqlite_version); print('pyodbc', pyodbc.version, pyodbc.drivers())"
           if ($LASTEXITCODE) { throw "Python module import failed" }
 
+      - name: Build .zip
+        run: |
+          build/zip/make_zip.ps1 -BinDir bin\x64\Release -OutDir dist
+          Get-ChildItem dist | Format-Table Name, Length
+
       - uses: actions/upload-artifact@v7
         with:
-          name: sql-studio-windows-x64-build-${{ env.SHORT_SHA }}
-          path: |
-            bin/x64/Release
-            !bin/x64/Release/**/*.pdb
-            !bin/x64/Release/**/*.ilk
-            !bin/x64/Release/**/*.exp
-          retention-days: 7
+          name: sql-studio-windows-x64-${{ env.SHORT_SHA }}
+          path: dist/*
+          compression-level: 0
+          retention-days: 14
