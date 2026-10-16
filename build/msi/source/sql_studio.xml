@@ -79,6 +79,9 @@
     <CustomAction Id="DeletePycFiles" DllEntry="DeleteFilesWildcard" Execute="deferred" Impersonate="no" Return="ignore" BinaryRef="MySQLCA" />
     <CustomAction Id="DeletePycFiles.SetProperty" Return="check" Property="DeletePycFiles" Value="[INSTALLDIR],*.pyc" />
 
+    <CustomAction Id="DeletePycacheFolders" DllEntry="DeletePycacheFolders" Execute="deferred" Impersonate="no" Return="ignore" BinaryRef="MySQLCA" />
+    <CustomAction Id="DeletePycacheFolders.SetProperty" Return="check" Property="DeletePycacheFolders" Value="[INSTALLDIR]" />
+
     <CustomAction Id="DeletePythonFolderOldInstall" DllEntry="DeleteFolders" Execute="deferred" Impersonate="no" Return="ignore" BinaryRef="MySQLCA" />
     <CustomAction Id="DeletePythonFolderOldInstall.SetProperty" Return="check" Property="DeletePythonFolderOldInstall" Value="[OLDINSTALLDIR]python" />
 
@@ -171,6 +174,9 @@
 
       <Custom Action="DeletePycFiles.SetProperty" Before="DeletePycFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
       <Custom Action="DeletePycFiles" Before="InstallFinalize" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+
+      <Custom Action="DeletePycacheFolders.SetProperty" Before="DeletePycacheFolders" Condition="REMOVE=&quot;ALL&quot;" />
+      <Custom Action="DeletePycacheFolders" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot;" />
 
       <Custom Action="DeletePythonFolderOldInstall.SetProperty" Before="DeletePythonFolderOldInstall" Condition="NOT(REMOVE=&quot;ALL&quot;)" />
       <Custom Action="DeletePythonFolderOldInstall" Before="InstallFinalize" Condition="NOT(REMOVE=&quot;ALL&quot;)" />

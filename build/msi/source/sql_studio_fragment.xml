@@ -24,14 +24,14 @@
       so the installer always matches what the build produces.
     -->
 
+      <StandardDirectory Id="ProgramMenuFolder">
+        <Directory Id="MysqlProgramMenuFolder" Name="MySQL" />
+      </StandardDirectory>
+
       <StandardDirectory Id="ProgramFiles6432Folder">
         <Directory Id="MYSQL" Name="MySQL">
           <Directory FileSource=".\" Id="Mysql_WB_Dir" Name="$(var.PRODUCT_NAME)">
             <Directory Id="INSTALLDIR" Name=".">
-              <Directory Id="ProgramMenuFolder">
-                <Directory Id="MysqlProgramMenuFolder" Name="MySQL" />
-              </Directory>
-
               <!-- Referenced by the cleanup entries in sql_studio.xml. -->
               <Directory Id="python" Name="python">
                 <Directory Id="python_lib" Name="lib">
