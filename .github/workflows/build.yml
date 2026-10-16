@@ -571,6 +571,24 @@ jobs:
           build/zip/make_zip.ps1 -BinDir bin\x64\Release -OutDir dist
           Get-ChildItem dist | Format-Table Name, Length
 
+      # Built from the unpacked .zip, so both packages ship the same files.
+      # AcceptEula accepts the WiX 7 EULA (Open Source Maintenance Fee terms,
+      # https://docs.firegiant.com/wix/osmf/); WiX refuses to build without it.
+      - name: Build .msi
+        run: |
+          $zip = Get-Item dist\*.zip
+          $version = $zip.BaseName -replace '^sql-studio-(.+)-winx64$', '$1'
+          Expand-Archive -LiteralPath $zip -DestinationPath "$env:RUNNER_TEMP\msi-payload"
+          $payload = @(Get-ChildItem "$env:RUNNER_TEMP\msi-payload" -Directory)[0].FullName
+          dotnet build build/msi/SqlStudio.wixproj -c Release -p:Edition=community -p:ProductVersion=$version `
+            -p:InstallerPlatform=x64 -p:Platform=x64 "-p:PayloadDirectory=$payload" -p:AcceptEula=wix7
+          if ($LASTEXITCODE) { throw "dotnet build failed with exit code $LASTEXITCODE" }
+          $name = "sql-studio-$version-winx64.msi"
+          Copy-Item build\msi\bin\x64\community\sql_studio.msi "dist\$name"
+          $hash = (Get-FileHash -Algorithm SHA256 "dist\$name").Hash.ToLowerInvariant()
+          Set-Content -LiteralPath "dist\$name.sha256" -Value "$hash  $name" -Encoding ascii -NoNewline
+          Get-ChildItem dist | Format-Table Name, Length
+
       - uses: actions/upload-artifact@v7
         with:
           name: sql-studio-windows-x64-${{ env.SHORT_SHA }}
@@ -636,6 +654,44 @@ jobs:
         run: |
           src/build/windows/smoke_test.ps1 -AppDir $env:APP -OutDir smoke-test
           if ($LASTEXITCODE) { throw "smoke_test.ps1 failed with exit code $LASTEXITCODE" }
+
+      # The same checks on an installed copy, then an uninstall that must
+      # leave nothing behind.
+      - name: Install the .msi
+        run: |
+          $msi = Get-Item dist\*.msi
+          $expected = (Get-Content "$($msi.FullName).sha256").Split(' ')[0]
+          if ((Get-FileHash -Algorithm SHA256 $msi).Hash -ne $expected) { throw "SHA256 mismatch for $($msi.Name)" }
+          $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/i', "`"$($msi.FullName)`"", '/qn', '/l*v', "`"$PWD\smoke-test\msi-install.log`"")
+          if ($p.ExitCode) { throw "msiexec /i failed with exit code $($p.ExitCode)" }
+          $exe = @(Get-ChildItem "$env:ProgramFiles\MySQL" -Recurse -Filter SqlStudio.exe -ErrorAction SilentlyContinue)
+          if (-not $exe) { throw "SqlStudio.exe was not installed under $env:ProgramFiles\MySQL" }
+          $dir = $exe[0].DirectoryName
+          "INSTALLED_APP=$dir" >> $env:GITHUB_ENV
+          Write-Host "Installed to $dir ($(@(Get-ChildItem $dir -Recurse -File).Count) files)"
+          $shortcut = @(Get-ChildItem "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\MySQL" -Filter *.lnk -ErrorAction SilentlyContinue)
+          if (-not $shortcut) { throw "No Start menu shortcut was created" }
+          Write-Host "Shortcut: $($shortcut[0].FullName)"
+
+      - name: Check DLL dependencies (installed)
+        run: |
+          src/build/windows/check_dll_deps.ps1 -OutputDir $env:INSTALLED_APP -RequireAppLocalRuntime
+          if ($LASTEXITCODE) { throw "check_dll_deps.ps1 failed with exit code $LASTEXITCODE" }
+
+      - name: Smoke test (installed)
+        run: |
+          src/build/windows/smoke_test.ps1 -AppDir $env:INSTALLED_APP -OutDir smoke-test\installed
+          if ($LASTEXITCODE) { throw "smoke_test.ps1 failed with exit code $LASTEXITCODE" }
+
+      - name: Uninstall the .msi
+        run: |
+          $msi = Get-Item dist\*.msi
+          $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/x', "`"$($msi.FullName)`"", '/qn', '/l*v', "`"$PWD\smoke-test\msi-uninstall.log`"")
+          if ($p.ExitCode) { throw "msiexec /x failed with exit code $($p.ExitCode)" }
+          if (Test-Path -LiteralPath $env:INSTALLED_APP) {
+            Get-ChildItem -LiteralPath $env:INSTALLED_APP -Recurse | Select-Object -First 20 | Format-Table FullName
+            throw "$env:INSTALLED_APP is left after the uninstall"
+          }
 
       - name: Upload smoke test results
         if: ${{ !cancelled() }}
