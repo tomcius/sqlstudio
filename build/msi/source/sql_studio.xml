@@ -178,11 +178,11 @@
       <Custom Action="DeletePycacheFolders.SetProperty" Before="DeletePycacheFolders" Condition="REMOVE=&quot;ALL&quot;" />
       <Custom Action="DeletePycacheFolders" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot;" />
 
-      <Custom Action="DeletePythonFolderOldInstall.SetProperty" Before="DeletePythonFolderOldInstall" Condition="NOT(REMOVE=&quot;ALL&quot;)" />
-      <Custom Action="DeletePythonFolderOldInstall" Before="InstallFinalize" Condition="NOT(REMOVE=&quot;ALL&quot;)" />
+      <Custom Action="DeletePythonFolderOldInstall.SetProperty" Before="DeletePythonFolderOldInstall" Condition="OLDINSTALLDIR AND NOT(REMOVE=&quot;ALL&quot;)" />
+      <Custom Action="DeletePythonFolderOldInstall" Before="InstallFinalize" Condition="OLDINSTALLDIR AND NOT(REMOVE=&quot;ALL&quot;)" />
 
-      <Custom Action="DeleteUtilitiesFolderOldInstall.SetProperty" Before="DeleteUtilitiesFolderOldInstall" Condition="NOT(REMOVE=&quot;ALL&quot;)" />
-      <Custom Action="DeleteUtilitiesFolderOldInstall" Before="InstallFinalize" Condition="NOT(REMOVE=&quot;ALL&quot;)" />
+      <Custom Action="DeleteUtilitiesFolderOldInstall.SetProperty" Before="DeleteUtilitiesFolderOldInstall" Condition="OLDINSTALLDIR AND NOT(REMOVE=&quot;ALL&quot;)" />
+      <Custom Action="DeleteUtilitiesFolderOldInstall" Before="InstallFinalize" Condition="OLDINSTALLDIR AND NOT(REMOVE=&quot;ALL&quot;)" />
 
       <?ifdef env.WB_UPGRADE_CA_PATH?>
       <!-- Part of fix for BUG#35869936 -->

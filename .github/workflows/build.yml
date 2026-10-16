@@ -688,8 +688,10 @@ jobs:
           $msi = Get-Item dist\*.msi
           $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/x', "`"$($msi.FullName)`"", '/qn', '/l*v', "`"$PWD\smoke-test\msi-uninstall.log`"")
           if ($p.ExitCode) { throw "msiexec /x failed with exit code $($p.ExitCode)" }
-          # Custom actions run with Return="ignore", so msiexec succeeds even when they cannot start.
-          $caErrors = @(Select-String -Path smoke-test\msi-*.log -Pattern 'SFXCA: Failed|Exception in CustomAction')
+          # Custom actions run with Return="ignore", so msiexec succeeds even when they
+          # cannot start. DeleteFolders and DeleteFilesWildcard are not checked: they
+          # report folders the uninstall has already removed.
+          $caErrors = @(Select-String -Path smoke-test\msi-*.log -Pattern 'SFXCA: Failed|Exception in CustomAction (PrecompilePythonFiles|DeletePycacheFolders)')
           if ($caErrors) { $caErrors | ForEach-Object { Write-Host $_.Line }; throw "Custom actions failed (see the msiexec logs)" }
           if (Test-Path -LiteralPath $env:INSTALLED_APP) {
             Get-ChildItem -LiteralPath $env:INSTALLED_APP -Recurse | Select-Object -First 20 | Format-Table FullName
