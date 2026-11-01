@@ -523,9 +523,9 @@ jobs:
             -ArgumentList @('modify', '--installPath', "`"$vs`"", '--add', 'Microsoft.VisualStudio.Component.VC.14.44.17.14.ATL', '--quiet', '--norestart', '--nocache')
           if (-not (Test-Path "$vs\VC\Tools\MSVC\$version\atlmfc\include\atlbase.h")) { throw "ATL for $version was not installed (installer exit code $($installer.ExitCode))" }
 
-      # Everything but build-time tools (_tools) and build trees (_work). The
-      # Debug libraries (debug) are kept for the windows-unit-tests job. The
-      # path ends in /* because exclusions only filter matched entries: a bare
+      # Only what a Release build of the app needs: no Debug libraries
+      # (debug), build-time tools (_tools) or build trees (_work). The path
+      # ends in /* because exclusions only filter matched entries: a bare
       # directory is archived whole, exclusions included.
       - name: Restore 3rd-party bundle
         id: bundle-cache
@@ -535,6 +535,7 @@ jobs:
             ${{ runner.temp }}/bundle/*
             !${{ runner.temp }}/bundle/_work
             !${{ runner.temp }}/bundle/_tools
+            !${{ runner.temp }}/bundle/debug
           key: bundle-windows-x64-${{ env.PLATFORM_TOOLSET }}-${{ hashFiles('build/windows/libs.txt', 'build/windows/build_3rdparty.ps1') }}
 
       # The cairo/glib build uses an MSYS2 MinGW pkg-config with libffi-8.dll
@@ -563,6 +564,7 @@ jobs:
             ${{ runner.temp }}/bundle/*
             !${{ runner.temp }}/bundle/_work
             !${{ runner.temp }}/bundle/_tools
+            !${{ runner.temp }}/bundle/debug
           key: ${{ steps.bundle-cache.outputs.cache-primary-key }}
 
       # Built after the cache is saved, so it stays out of the bundle cache.
@@ -624,75 +626,26 @@ jobs:
           compression-level: 0
           retention-days: 14
 
-  # Debug build of the whole solution and the native unit tests
-  # (testing/test-suite). Runs after the windows job, which builds and caches
-  # the 3rd-party bundle, Debug libraries included.
-  windows-unit-tests:
-    name: Unit tests (Windows x64, Debug)
-    needs: windows
-    runs-on: windows-2025
-    timeout-minutes: 180
-    defaults:
-      run:
-        shell: pwsh
-    env:
-      # Same toolset as the windows job; see the comment there.
-      PLATFORM_TOOLSET: v143
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set paths
-        run: |
-          "MSS_3DPARTY_PATH=$env:RUNNER_TEMP\bundle" >> $env:GITHUB_ENV
-          "SHORT_SHA=$($env:GITHUB_SHA.Substring(0, 8))" >> $env:GITHUB_ENV
-
-      # Same as in the windows job.
-      - name: Install ATL for v143
-        run: |
-          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-          $version = (Get-Content "$vs\VC\Auxiliary\Build\Microsoft.VCToolsVersion.v143.default.txt" -TotalCount 1).Trim()
-          if (Test-Path "$vs\VC\Tools\MSVC\$version\atlmfc\include\atlbase.h") { Write-Host "ATL for $version is installed."; exit 0 }
-          $installer = Start-Process -Wait -PassThru "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe" `
-            -ArgumentList @('modify', '--installPath', "`"$vs`"", '--add', 'Microsoft.VisualStudio.Component.VC.14.44.17.14.ATL', '--quiet', '--norestart', '--nocache')
-          if (-not (Test-Path "$vs\VC\Tools\MSVC\$version\atlmfc\include\atlbase.h")) { throw "ATL for $version was not installed (installer exit code $($installer.ExitCode))" }
-
-      # Saved by the windows job; same paths and key.
-      - name: Restore 3rd-party bundle
-        uses: actions/cache/restore@v6
-        with:
-          path: |
-            ${{ runner.temp }}/bundle/*
-            !${{ runner.temp }}/bundle/_work
-            !${{ runner.temp }}/bundle/_tools
-          key: bundle-windows-x64-${{ env.PLATFORM_TOOLSET }}-${{ hashFiles('build/windows/libs.txt', 'build/windows/build_3rdparty.ps1') }}
-          fail-on-cache-miss: true
-
-      # The whole solution: the test-suite script builds only the SqlStudio
-      # target, which leaves out the GRT modules, plugins and Python bindings
-      # the tests load at run time.
-      - name: Build SqlStudio (Debug)
-        run: |
-          build/windows/compile.ps1 -Action build -Configuration Debug -BundleDir $env:MSS_3DPARTY_PATH -PlatformToolset $env:PLATFORM_TOOLSET
-          if ($LASTEXITCODE) { throw "compile.ps1 failed with exit code $LASTEXITCODE" }
-
+      # Native unit tests (testing/test-suite) against the Release build
+      # above. After the packages, because preparing the test runtime copies
+      # test data into bin\x64\Release as well.
       - name: Build unit tests
         run: |
-          testing/test-suite/compile.ps1 -Action build -Configuration Debug -BundleDir $env:MSS_3DPARTY_PATH -PlatformToolset $env:PLATFORM_TOOLSET
+          testing/test-suite/compile.ps1 -Action build -Configuration Release -BundleDir $env:MSS_3DPARTY_PATH -PlatformToolset $env:PLATFORM_TOOLSET
           if ($LASTEXITCODE) { throw "compile.ps1 failed with exit code $LASTEXITCODE" }
 
       # Fails when any test fails. The Google Test XML report and the list of
       # failed suites go to testing/test-suite/TestResults.
       - name: Run unit tests
         run: |
-          testing/test-suite/compile.ps1 -Action test -SkipBuild -Configuration Debug -BundleDir $env:MSS_3DPARTY_PATH -PlatformToolset $env:PLATFORM_TOOLSET
+          testing/test-suite/compile.ps1 -Action test -SkipBuild -Configuration Release -BundleDir $env:MSS_3DPARTY_PATH -PlatformToolset $env:PLATFORM_TOOLSET
           if ($LASTEXITCODE) { throw "compile.ps1 failed with exit code $LASTEXITCODE" }
 
-      - name: Upload test results
+      - name: Upload unit test results
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: unit-tests-windows-x64-debug-${{ env.SHORT_SHA }}
+          name: unit-tests-windows-x64-${{ env.SHORT_SHA }}
           path: testing/test-suite/TestResults
           if-no-files-found: ignore
           retention-days: 14
@@ -702,6 +655,9 @@ jobs:
   windows-package-test:
     name: Test package (Windows x64)
     needs: windows
+    # The packages are uploaded before the unit tests run, so test them even
+    # when a unit test failed.
+    if: ${{ !cancelled() }}
     runs-on: windows-2025
     timeout-minutes: 30
     defaults:
