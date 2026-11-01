@@ -637,6 +637,7 @@ jobs:
       # Fails when any test fails. The Google Test XML report and the list of
       # failed suites go to testing/test-suite/TestResults.
       - name: Run unit tests
+        timeout-minutes: 20
         run: |
           testing/test-suite/compile.ps1 -Action test -SkipBuild -Configuration Release -BundleDir $env:MSS_3DPARTY_PATH -PlatformToolset $env:PLATFORM_TOOLSET
           if ($LASTEXITCODE) { throw "compile.ps1 failed with exit code $LASTEXITCODE" }
