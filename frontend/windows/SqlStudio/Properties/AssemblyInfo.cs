@@ -28,5 +28,5 @@ using MySQL.GUI.SqlStudio;
 //      Minor Version 
 //      Release Number
 //
-[assembly: AssemblyVersion("1.0.1")]
-[assembly: AssemblyFileVersion("1.0.1")]
+[assembly: AssemblyVersion("1.1.0")]
+[assembly: AssemblyFileVersion("1.1.0")]
