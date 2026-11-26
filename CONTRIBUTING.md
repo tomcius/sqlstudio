@@ -276,8 +276,8 @@ configured, and avoid unrelated repository-wide formatting changes.
 
 ## Build and Package Checks
 
-Every pull request to `develop`, `master` or a `releases/*` branch, and every
-push to them, runs the **Build** workflow (`.github/workflows/build.yml`). For each supported Linux
+Every pull request to `develop`, `master` or a `releases/*` branch, every
+push to them and every `v*` tag runs the **Build** workflow (`.github/workflows/build.yml`). For each supported Linux
 distribution (Ubuntu 22.04, 24.04, 26.04 and 26.10, Debian 12 and 13) it:
 
 1. builds SqlStudio in a clean container of that distribution, because each one
@@ -308,7 +308,7 @@ branch:
 - **Debug** for pull requests to `develop` and pushes to it. The unit tests
   then run against the Debug libraries of the third-party bundle as well. No
   packages are made.
-- **Release** for `master`, `releases/*` branches and manual runs. The build
+- **Release** for `master`, `releases/*` branches, `v*` tags and manual runs. The build
   is packaged twice: as a portable `.zip` that carries the Visual C++ runtime
   (`build/zip/make_zip.ps1`), and as an `.msi` built from that `.zip`
   (`build/msi`). A separate job unpacks the `.zip` on a fresh runner with the
@@ -406,12 +406,13 @@ never change it.
 3. **Release candidates.** Every push to the release branch, and every pull
    request into it, builds RC packages. For an RC meant for testers outside the
    team, the release owner tags `vX.Y.Z-rcN` (`rc1`, `rc2`, ...) on the release
-   branch. Builds and GitHub releases for tags are not set up yet (#40).
+   branch. The tag builds and publishes a pre-release (see Publishing).
 4. **Release.**
    - Open a pull request `releases/x.y.z` → `master`. It holds the same code as
      the last RC. `master` only accepts pull requests from `releases/*`
      branches, merged with a merge commit.
-   - After the merge, tag `vX.Y.Z` on `master`.
+   - After the merge, tag `vX.Y.Z` on `master`. The tag builds a draft
+     release; check its files and publish it (see Publishing).
    - Merge back with a pull request `releases/x.y.z` → `develop`. It conflicts
      in `wb_version.h` (and the files `set_version` changes) every time: keep
      `develop`'s version, the next minor.
@@ -422,6 +423,42 @@ never change it.
 
 Release branches are never deleted, so they stay available as the base for
 hotfixes. Only maintainers can create, move or delete `v*` tags.
+
+### Publishing
+
+The packages are published as GitHub releases in a separate repository, set
+by the repository variable `RELEASES_REPO` (`sqlstudio-dev/releases`). This
+repository keeps the code and the tags; users download from the releases
+repository.
+
+When every build and package test of a `v*` tag has passed (CI result), the
+**Release** job collects the packages (`.deb` per distribution, `.dmg`, `.zip`,
+`.msi`), writes `SHA256SUMS` and the release notes (the commits since the
+previous tag) and runs `tools/publish_release.sh`:
+
+| Tag | Release |
+|---|---|
+| `vX.Y.Z-rcN` | pre-release, published right away |
+| `vX.Y.Z` | draft: check the files, then publish it in the releases repository |
+
+The job requires the exact set of packages (a `.deb` for every distribution
+of the Linux matrix, the `.dmg`, `.zip` and `.msi`), so a release never goes
+out with a platform missing. GitHub renames release files with special
+characters, so the `.deb` files are published without the Debian tildes,
+e.g. `sql-studio-community_1.1.0-rc1_ubuntu24.04_amd64.deb`; the version inside
+the package stays `1.1.0~rc1-1~ubuntu24.04`.
+
+The files are uploaded to a draft first, so a release never appears with only
+part of its files. If the job fails, re-run it: it fills in the existing draft
+again. Publish a draft only after the Release job has finished. A release that
+is already published is never changed; for a broken release, make a new tag.
+The releases repository has immutable releases turned on, so the files of a
+published release cannot be replaced.
+
+The job writes to the releases repository with a GitHub App that is installed
+only there and has `contents: write`. Its ID and private key are the secrets
+`RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` of the `release` environment,
+which only `v*` tags can use.
 
 ### Branch protection
 
