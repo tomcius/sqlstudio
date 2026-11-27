@@ -2,9 +2,8 @@
 #
 # publish_release.sh — Publish the packages of a v* tag as a GitHub release
 #
-# Used by the release job in .github/workflows/build.yml. The release goes to a
-# separate repository (sqlstudio-dev/releases), which only holds the packages;
-# this repository keeps the code and the tags.
+# Used by the release job in .github/workflows/build.yml. The release is
+# created in this repository, for the tag that was pushed.
 #
 #   vX.Y.Z-rcN   pre-release, published right away
 #   vX.Y.Z       draft; a maintainer checks and publishes it
@@ -14,12 +13,13 @@
 # a release that is already published is never changed.
 #
 # Usage:
-#   tools/publish_release.sh --tag TAG --repo OWNER/NAME --packages DIR \
-#       --distros "DISTRO..." [options]
+#   tools/publish_release.sh --tag TAG --packages DIR --distros "DISTRO..." \
+#       [options]
 #
 # Options:
 #   --tag TAG          vX.Y.Z or vX.Y.Z-rcN; must match the packages' version
-#   --repo OWNER/NAME  repository that receives the release
+#   --repo OWNER/NAME  repository that receives the release; the tag must
+#                      already be there (default: $GITHUB_REPOSITORY)
 #   --packages DIR     directory searched for .deb, .dmg, .zip and .msi files
 #   --distros LIST     the Linux distro tags that must have a .deb, e.g.
 #                      "ubuntu24.04 debian13"; every package must be there
@@ -28,6 +28,8 @@
 #   --source-url URL   link to this repository, for the release notes
 #                      (default: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY)
 #   --run-url URL      link to the CI run, for the release notes
+#   --sha SHA          the commit the packages were built from; the tag must
+#                      still point to it (default: $GITHUB_SHA)
 #   --dry-run          collect the files and write the notes, but do not
 #                      call GitHub
 #   -h, --help         show this help message
@@ -41,7 +43,7 @@ export LC_ALL=C     # stable file order in SHA256SUMS and the notes
 
 usage() { sed -n '/^# Usage:/,/^# Environment:/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
-tag="" repo="" packages="" distros="" out="" dry_run=0 run_url=""
+tag="" repo="" packages="" distros="" out="" dry_run=0 run_url="" sha="${GITHUB_SHA:-}"
 source_url="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-}"
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -52,6 +54,7 @@ while [[ $# -gt 0 ]]; do
         --out)        out="${2:?--out needs a value}"; shift 2 ;;
         --source-url) source_url="${2:?--source-url needs a value}"; shift 2 ;;
         --run-url)    run_url="${2:?--run-url needs a value}"; shift 2 ;;
+        --sha)        sha="${2:?--sha needs a value}"; shift 2 ;;
         --dry-run)    dry_run=1; shift ;;
         -h|--help)    usage 0 ;;
         *) echo "Unknown option: $1" >&2; usage 1 >&2 ;;
@@ -60,6 +63,7 @@ done
 
 fail() { echo "::error::$*" >&2; exit 1; }
 
+repo="${repo:-${GITHUB_REPOSITORY:-}}"
 [[ -n "${tag}" && -n "${repo}" && -n "${packages}" && -n "${distros}" ]] || usage 1 >&2
 [[ "${repo}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || fail "Not a repository: ${repo}"
 [[ -d "${packages}" ]] || fail "No such directory: ${packages}"
@@ -73,6 +77,11 @@ file_version="${version}${rc:+-${rc}}"
 deb_version="${version}${rc:+~${rc}}"
 # The release notes need the tag and its history.
 git rev-parse -q --verify "refs/tags/${tag}" >/dev/null || fail "Tag ${tag} is not in this checkout"
+# The notes come from the local tag, so it must be the commit that was built.
+local_sha="$(git rev-parse "refs/tags/${tag}^{commit}")"
+[[ -n "${sha}" ]] || sha="${local_sha}"
+[[ "${local_sha}" == "${sha}" ]] ||
+    fail "Tag ${tag} in this checkout points to ${local_sha}, but the packages were built from ${sha}"
 
 # ── Collect the packages ────────────────────────────────────────────────────
 # The exact set of files is required, so a release never goes out with a
@@ -195,15 +204,35 @@ fi
 
 # ── Publish ─────────────────────────────────────────────────────────────────
 title="SQL Studio ${file_version}"
-# The list includes drafts (which have no tag yet). An API error stops here:
-# only a confirmed absence may create a release.
+
+# The packages belong to ${sha}. If the tag was moved since the build, the
+# release would show other code than the packages hold.
+check_tag() {
+    local ref remote
+    # The exact tag ref (a short name could also match a branch); an annotated
+    # tag points to a tag object, which points to the commit.
+    ref="$(gh api "repos/${repo}/git/ref/tags/${tag}" --jq '"\(.object.type) \(.object.sha)"')" ||
+        fail "Could not read the tag ${tag} in ${repo}"
+    remote="${ref#* }"
+    if [[ "${ref%% *}" == tag ]]; then
+        remote="$(gh api "repos/${repo}/git/tags/${remote}" --jq '.object.sha')" ||
+            fail "Could not read the tag ${tag} in ${repo}"
+    fi
+    [[ "${remote}" == "${sha}" ]] ||
+        fail "Tag ${tag} in ${repo} points to ${remote}, but the packages were built from ${sha}"
+}
+check_tag
+
+# The list includes drafts, which the single-release endpoint does not find by
+# tag. An API error stops here: only a confirmed absence may create a release.
 state="$(gh api --paginate "repos/${repo}/releases?per_page=100" \
     --jq ".[] | select(.tag_name == \"${tag}\") | .draft")" ||
     fail "Could not list the releases of ${repo}"
 case "${state}" in
     "")
-        gh release create "${tag}" --repo "${repo}" --draft --title "${title}" \
-            --notes-file "${notes}" ${rc:+--prerelease}
+        # --verify-tag: use the pushed tag, never create one.
+        gh release create "${tag}" --repo "${repo}" --draft --verify-tag \
+            --title "${title}" --notes-file "${notes}" ${rc:+--prerelease}
         ;;
     true)
         echo "Draft ${tag} already exists in ${repo}; uploading the packages again"
@@ -237,6 +266,7 @@ assets="$(gh release view "${tag}" --repo "${repo}" --json assets --jq '.assets[
 [[ "${assets}" == "$(sort <<<"${expected}")" ]] ||
     fail "The draft ${tag} does not hold exactly the expected files: ${assets//$'\n'/ }"
 
+check_tag
 if [[ -n "${rc}" ]]; then
     gh release edit "${tag}" --repo "${repo}" --draft=false --prerelease
     echo "Published pre-release ${tag}"

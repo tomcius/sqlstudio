@@ -426,10 +426,8 @@ hotfixes. Only maintainers can create, move or delete `v*` tags.
 
 ### Publishing
 
-The packages are published as GitHub releases in a separate repository, set
-by the repository variable `RELEASES_REPO` (`sqlstudio-dev/releases`). This
-repository keeps the code and the tags; users download from the releases
-repository.
+The packages are published as GitHub releases of this repository, attached
+to the tag that was pushed.
 
 When every build and package test of a `v*` tag has passed (CI result), the
 **Release** job collects the packages (`.deb` per distribution, `.dmg`, `.zip`,
@@ -439,7 +437,7 @@ previous tag) and runs `tools/publish_release.sh`:
 | Tag | Release |
 |---|---|
 | `vX.Y.Z-rcN` | pre-release, published right away |
-| `vX.Y.Z` | draft: check the files, then publish it in the releases repository |
+| `vX.Y.Z` | draft: check the files, then publish it |
 
 The job requires the exact set of packages (a `.deb` for every distribution
 of the Linux matrix, the `.dmg`, `.zip` and `.msi`), so a release never goes
@@ -452,13 +450,14 @@ The files are uploaded to a draft first, so a release never appears with only
 part of its files. If the job fails, re-run it: it fills in the existing draft
 again. Publish a draft only after the Release job has finished. A release that
 is already published is never changed; for a broken release, make a new tag.
-The releases repository has immutable releases turned on, so the files of a
-published release cannot be replaced.
+The repository has immutable releases turned on, so the files and the tag of
+a published release cannot be changed.
 
-The job writes to the releases repository with a GitHub App that is installed
-only there and has `contents: write`. Its ID and private key are the secrets
-`RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` of the `release` environment,
-which only `v*` tags can use.
+The job publishes with the workflow's `GITHUB_TOKEN`, with `contents: write`
+for this job only. It runs in the `release` environment, which only `v*` tags
+can use. Never move a `v*` tag: the job checks that the tag still points to
+the commit the packages were built from, and fails otherwise. To fix an RC,
+tag the next one.
 
 ### Branch protection
 
