@@ -276,8 +276,8 @@ configured, and avoid unrelated repository-wide formatting changes.
 
 ## Build and Package Checks
 
-Every pull request to `develop` or `master`, and every push to them, runs the
-**Build** workflow (`.github/workflows/build.yml`). For each supported Linux
+Every pull request to `develop`, `master` or a `releases/*` branch, every
+push to them and every `v*` tag runs the **Build** workflow (`.github/workflows/build.yml`). For each supported Linux
 distribution (Ubuntu 22.04, 24.04, 26.04 and 26.10, Debian 12 and 13) it:
 
 1. builds SqlStudio in a clean container of that distribution, because each one
@@ -300,15 +300,58 @@ hidden, checks that all library references stay inside the app, that the
 signature is intact and that pyodbc imports, and runs the smoke test
 (`build/mac/smoke_test.sh`).
 
-On Windows (x64) the workflow builds the whole solution with the v143 toolset
-and packages it twice: as a portable `.zip` that carries the Visual C++
-runtime (`build/zip/make_zip.ps1`), and as an `.msi` built from that `.zip`
-(`build/msi`). A separate job unpacks the `.zip` on a fresh runner with the
-runner's Python taken off `PATH`, checks that every DLL resolves
-(`build/windows/check_dll_deps.ps1`) and that pyodbc imports, and runs the
-smoke test (`build/windows/smoke_test.ps1`). It then installs the `.msi`
-silently, runs the same checks on the installed copy, and checks that an
-uninstall removes it.
+On Windows (x64) the workflow builds the whole solution with the v143 toolset,
+checks that every DLL resolves (`build/windows/check_dll_deps.ps1`) and runs
+the native unit tests (`testing/test-suite`). The configuration depends on the
+branch:
+
+- **Debug** for pull requests to `develop` and pushes to it. The unit tests
+  then run against the Debug libraries of the third-party bundle as well. No
+  packages are made.
+- **Release** for `master`, `releases/*` branches, `v*` tags and manual runs. The build
+  is packaged twice: as a portable `.zip` that carries the Visual C++ runtime
+  (`build/zip/make_zip.ps1`), and as an `.msi` built from that `.zip`
+  (`build/msi`). A separate job unpacks the `.zip` on a fresh runner with the
+  runner's Python taken off `PATH`, checks that every DLL resolves and that
+  pyodbc imports, and runs the smoke test (`build/windows/smoke_test.ps1`). It
+  then installs the `.msi` silently, runs the same checks on the installed
+  copy, and checks that an uninstall removes it.
+
+The **CI result** job sums up all the other jobs and fails if any of them
+failed or was cancelled. It is the check to require in branch rules.
+
+### Package versions
+
+The numeric version (`x.y.z`) lives in `backend/wbprivate/studio/wb_version.h`
+and changes only through `./set_version`. Before the build, CI runs
+`tools/ci_version.sh --apply`, which adds a suffix that depends on the branch
+or tag, and the run number (`github.run_number`) as the build number. It
+writes both into `wb_version.h` in the workspace, so the About box,
+`--version` and "Copy Version Info" show exactly which build is running.
+Never commit these changes.
+
+| Build | Version | `APP_RELEASE_TYPE` |
+|---|---|---|
+| `develop`, pull requests to it, other branches | `1.2.0-dev.<run>` | `dev` |
+| `releases/x.y.z`, pull requests to it | `1.1.0-rc0.<run>` | `rc` |
+| tag `vX.Y.Z-rcN` | `1.1.0-rcN` | `rcN` |
+| `master`, pull requests to it, tag `vX.Y.Z` | `1.1.0` | (empty) |
+
+The run fails when a `releases/x.y.z` branch or a `v*` tag does not match the
+version in `wb_version.h`.
+
+The suffix appears in the package names:
+
+- **Linux:** `sql-studio-community_1.1.0~rc1-1~ubuntu24.04_amd64.deb`. The tilde
+  makes dpkg sort pre-releases before the final release:
+  `1.1.0~dev.N` < `1.1.0~rc0.N` < `1.1.0~rc1` < `1.1.0`. Release branch builds
+  are `rc0.<run>` so that they sort before the first tagged RC.
+- **macOS:** `SqlStudio-1.1.0-rc1-macos-arm64.dmg`. `CFBundleShortVersionString`
+  stays `1.1.0`.
+- **Windows:** `sql-studio-1.1.0-rc1-winx64.zip` and `.msi`. The MSI
+  `ProductVersion` stays `1.1.0`. Every build of the same version therefore
+  shares it, and `AllowSameVersionUpgrades` makes a newer `.msi` replace the
+  installed one instead of installing next to it.
 
 The packages and the smoke test results (screenshot and logs) are attached to
 the workflow run as artifacts for 14 days. To try a package by hand, see
@@ -318,14 +361,116 @@ The third-party libraries (MySQL client, Connector/C++, GDAL, ANTLR runtime,
 ...) take a long time to build, so they are cached per distribution and
 rebuilt only when `build/linux/list.txt`, `build/linux/build_3rdparty.sh` or
 `build/linux/install_deps.sh` change (on Windows: `build/windows/libs.txt`,
-`build/windows/build_3rdparty.ps1` or the toolset). A pull request can use caches saved by
-its own earlier runs or on its target branch, so the first run after such a
+`build/windows/build_3rdparty.ps1` or the toolset; the Debug libraries are
+cached separately). A pull request can use caches saved by its own earlier
+runs, on its target branch or on `master`, so the first run after such a
 change takes longer.
 
 A daily `Cleanup` workflow deletes the caches of closed pull requests and the
 artifacts of older runs of each pull request, keeping only the newest one. It
 can also be started by hand from the Actions tab; by default it then only
 lists what it would delete.
+
+## Releases
+
+A release is always made from a `releases/x.y.z` branch, hotfixes included.
+Changes travel `feature/*` → `develop` → `releases/x.y.z` → `master`, every
+step through a pull request. The release owner is a code owner
+(`.github/CODEOWNERS`).
+
+### Versions
+
+The version lives in `backend/wbprivate/studio/wb_version.h` and changes only
+through `./set_version X.Y.Z`. The script also updates the Windows
+`AssemblyInfo.cs` and the macOS `Info.plist`. Feature and fix pull requests
+never change it.
+
+- **`develop` always holds the next minor version.** Right after the cut of
+  `releases/1.1.0`, the release owner opens a pull request on `develop` with
+  `./set_version 1.2.0`.
+- **A release branch inherits the version from `develop`**, so the cut changes
+  nothing.
+- **A major release** (`2.0.0`) is a separate `./set_version` pull request on
+  `develop` before the cut.
+- **Patch versions** only come from hotfix branches.
+- **Never commit a suffix or build number.** CI adds `dev` / `rc` and the run
+  number to each build (see "Package versions" under Build and Package Checks).
+
+### Making a release
+
+1. **Feature freeze.** The release owner creates `releases/x.y.z` from
+   `develop` and pushes it. From then on, only fixes go into it, through pull
+   requests to the release branch. Anything merged into `develop` after the cut
+   goes into the next release.
+2. **Bump `develop`** with a pull request: `./set_version <next minor>`.
+3. **Release candidates.** Every push to the release branch, and every pull
+   request into it, builds RC packages. For an RC meant for testers outside the
+   team, the release owner tags `vX.Y.Z-rcN` (`rc1`, `rc2`, ...) on the release
+   branch. The tag builds and publishes a pre-release (see Publishing).
+4. **Release.**
+   - Open a pull request `releases/x.y.z` → `master`. It holds the same code as
+     the last RC. `master` only accepts pull requests from `releases/*`
+     branches, merged with a merge commit.
+   - After the merge, tag `vX.Y.Z` on `master`. The tag builds a draft
+     release; check its files and publish it (see Publishing).
+   - Merge back with a pull request `releases/x.y.z` → `develop`. It conflicts
+     in `wb_version.h` (and the files `set_version` changes) every time: keep
+     `develop`'s version, the next minor.
+5. **Hotfix.** Create `releases/x.y.(z+1)` from the `vX.Y.Z` tag and commit
+   `./set_version x.y.(z+1)` on it before the first push: CI fails on a release
+   branch whose name does not match `wb_version.h`. After that, follow
+   steps 3–4.
+
+Release branches are never deleted, so they stay available as the base for
+hotfixes. Only maintainers can create, move or delete `v*` tags.
+
+### Publishing
+
+The packages are published as GitHub releases of this repository, attached
+to the tag that was pushed.
+
+When every build and package test of a `v*` tag has passed (CI result), the
+**Release** job collects the packages (`.deb` per distribution, `.dmg`, `.zip`,
+`.msi`), writes `SHA256SUMS` and the release notes (the commits since the
+previous tag) and runs `tools/publish_release.sh`:
+
+| Tag | Release |
+|---|---|
+| `vX.Y.Z-rcN` | pre-release, published right away |
+| `vX.Y.Z` | draft: check the files, then publish it |
+
+The job requires the exact set of packages (a `.deb` for every distribution
+of the Linux matrix, the `.dmg`, `.zip` and `.msi`), so a release never goes
+out with a platform missing. GitHub renames release files with special
+characters, so the `.deb` files are published without the Debian tildes,
+e.g. `sql-studio-community_1.1.0-rc1_ubuntu24.04_amd64.deb`; the version inside
+the package stays `1.1.0~rc1-1~ubuntu24.04`.
+
+The files are uploaded to a draft first, so a release never appears with only
+part of its files. If the job fails, re-run it: it fills in the existing draft
+again. Publish a draft only after the Release job has finished. A release that
+is already published is never changed; for a broken release, make a new tag.
+The repository has immutable releases turned on, so the files and the tag of
+a published release cannot be changed.
+
+The job publishes with the workflow's `GITHUB_TOKEN`, with `contents: write`
+for this job only. It runs in the `release` environment, which only `v*` tags
+can use. Never move a `v*` tag: the job checks that the tag still points to
+the commit the packages were built from, and fails otherwise. To fix an RC,
+tag the next one.
+
+### Branch protection
+
+| Branch | Pull request | Required check | Deletion and force-push |
+|---|---|---|---|
+| `develop` | approval by a code owner, threads resolved | `CI result` | blocked |
+| `releases/**` | approval by a code owner, threads resolved, merge commit only | `CI result` | blocked |
+| `master` | approval by a code owner, threads resolved, merge commit only | `CI result`, `PR source branch` | blocked |
+
+`CI result` sums up the Build workflow and fails if any job failed, was
+cancelled or did not start. Which jobs run on which branch is described under
+Build and Package Checks. `PR source branch` fails a pull request to `master`
+that does not come from a `releases/*` branch of this repository.
 
 ## Pull Request Guidelines
 
