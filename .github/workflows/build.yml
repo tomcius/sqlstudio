@@ -904,61 +904,40 @@ jobs:
             exit 1
           fi
 
-  # Publishes the packages of a v* tag as a GitHub release in the repository
-  # set by the variable RELEASES_REPO (sqlstudio-dev/releases): a pre-release
-  # for vX.Y.Z-rcN, a draft for vX.Y.Z, which a maintainer publishes after
-  # checking it. It runs only when CI result passed, so every build and
-  # package test succeeded. GITHUB_TOKEN cannot write to another repository;
-  # a GitHub App installed only on the releases repository provides a
-  # short-lived token. Its secrets live in the release environment, which
-  # only v* tags can use.
+  # Publishes the packages of a v* tag as a GitHub release of this repository:
+  # a pre-release for vX.Y.Z-rcN, a draft for vX.Y.Z, which a maintainer
+  # publishes after checking it. It runs only when CI result passed, so every
+  # build and package test succeeded.
   release:
     name: Release
     if: github.ref_type == 'tag'
     needs: ci-result
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # Only v* tags may use this environment (deployment protection).
     environment: release
+    permissions:
+      contents: write     # create the release and upload its files
     steps:
-      - name: Check the releases repository
-        id: target
-        env:
-          RELEASES_REPO: ${{ vars.RELEASES_REPO }}
-        run: |
-          if [[ ! "$RELEASES_REPO" =~ ^([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$ ]]; then
-            echo "::error::Set the repository variable RELEASES_REPO to OWNER/NAME (e.g. sqlstudio-dev/releases)."
-            exit 1
-          fi
-          echo "owner=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
-          echo "name=${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
-
-      # The release notes list the commits since the previous tag.
+      # The release notes list the commits since the previous tag. The token
+      # (contents: write) is not kept in the git config after the checkout;
+      # only the publish step gets it, as GH_TOKEN.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/download-artifact@v8
         with:
           pattern: sql-studio-*
           path: artifacts
 
-      - name: Create a token for the releases repository
-        id: token
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-          owner: ${{ steps.target.outputs.owner }}
-          repositories: ${{ steps.target.outputs.name }}
-          permission-contents: write
-
       - name: Publish the release
         env:
-          GH_TOKEN: ${{ steps.token.outputs.token }}
-          RELEASES_REPO: ${{ vars.RELEASES_REPO }}
+          GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           # --distros: the tags of the linux matrix; every one must have a .deb.
-          tools/publish_release.sh --tag "$GITHUB_REF_NAME" --repo "$RELEASES_REPO" \
+          tools/publish_release.sh --tag "$GITHUB_REF_NAME" \
             --packages artifacts --out "$RUNNER_TEMP/release" --run-url "$RUN_URL" \
             --distros "ubuntu22.04 ubuntu24.04 ubuntu26.04 ubuntu26.10 debian12 debian13"

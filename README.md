@@ -88,11 +88,11 @@ and verification instructions.
 SqlStudio follows a **release-on-demand** policy:
 
 - Releases are made when they are ready - not on a fixed calendar schedule.
-- Each release is tagged here and its packages are published in [sqlstudio-dev/releases](https://github.com/sqlstudio-dev/releases/releases).
+- Each release is tagged and published, with the packages for every platform, in the [Releases](../../releases) section of this repository.
 - Release notes are included with every tagged version.
 - Pre-release and development builds may be available on the `develop` branch but are not guaranteed to be stable.
 
-To be notified of new releases, **watch [sqlstudio-dev/releases](https://github.com/sqlstudio-dev/releases)** and select *"Releases only"* in GitHub notification settings.
+To be notified of new releases, **watch this repository** and select *"Releases only"* in GitHub notification settings.
 
 ---
 
@@ -161,5 +161,5 @@ SqlStudio is built on the foundation of MySQL Workbench, originally developed by
 - 🐛 Issue Tracker: [GitHub Issues](https://github.com/sqlstudio-dev/sqlstudio/issues)
 - 💬 Discussions: [GitHub Discussions](https://github.com/sqlstudio-dev/sqlstudio/discussions)
 - 🎧 Discord Channel: [Join the Discord server](https://discord.gg/gQNPbpgeg)
-- 🔖 Releases: [GitHub Releases](https://github.com/sqlstudio-dev/releases)
+- 🔖 Releases: [GitHub Releases](https://github.com/sqlstudio-dev/sqlstudio/releases)
 - 🌐 Source repository: [Source repo](https://github.com/sqlstudio-dev/sqlstudio)
